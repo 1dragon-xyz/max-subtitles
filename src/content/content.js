@@ -116,6 +116,22 @@
       .join('<br>');
   };
 
+  let ensureEnglishSubtitlesActive = async (video, container) => {
+    if (!video || !video.textTracks) return false;
+    for (let i = 0; i < video.textTracks.length; i++) {
+      const track = video.textTracks[i];
+      const lang = (track.language || '').toLowerCase();
+      const label = (track.label || '').toLowerCase();
+      if (lang.startsWith('en') || label.includes('english')) {
+        try {
+          if (track.mode !== 'showing') track.mode = 'showing';
+          return true;
+        } catch (_) {}
+      }
+    }
+    return false;
+  };
+
   try {
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL) {
       const cueModule = await import(chrome.runtime.getURL('src/shared/cue-processor.js'));
@@ -127,6 +143,9 @@
 
       const overlayModule = await import(chrome.runtime.getURL('src/shared/overlay-helper.js'));
       if (overlayModule.formatSubtitleHtml) formatSubtitleHtml = overlayModule.formatSubtitleHtml;
+
+      const enablerModule = await import(chrome.runtime.getURL('src/shared/auto-enabler.js'));
+      if (enablerModule.ensureEnglishSubtitlesActive) ensureEnglishSubtitlesActive = enablerModule.ensureEnglishSubtitlesActive;
     }
   } catch (_) {
     // Fallback functions remain active
@@ -213,6 +232,9 @@
         if (!state.currentCleanText) {
           state.overlayElement.classList.add('hidden');
         }
+      }
+      if (state.videoElement) {
+        ensureEnglishSubtitlesActive(state.videoElement, state.playerContainer || document.body);
       }
     } else {
       document.documentElement.classList.remove('max-vietsub-active');
@@ -653,6 +675,10 @@
 
       if (container) {
         setupDOMCaptionsObserver(container);
+      }
+
+      if (state.enabled) {
+        ensureEnglishSubtitlesActive(video, container);
       }
     }
   }
