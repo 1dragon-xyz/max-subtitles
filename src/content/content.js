@@ -119,6 +119,8 @@
   let ensureEnglishSubtitlesActive = async () => false;
   let captureAndTurnOffSubtitles = async () => false;
   let disableShowingTextTracks = () => {};
+  let isVideoReadyForSubtitles = (video) =>
+    Boolean(video && (typeof video.readyState !== 'number' || video.readyState >= 3) && (video.currentTime || 0) >= 1.5);
   let findNativeCaptionElements = () => [];
 
   // Opt-in diagnostics: run  localStorage.maxVietSubDebug = '1'  in the page console, then reload.
@@ -149,6 +151,7 @@
       if (enablerModule.ensureEnglishSubtitlesActive) ensureEnglishSubtitlesActive = enablerModule.ensureEnglishSubtitlesActive;
       if (enablerModule.captureAndTurnOffSubtitles) captureAndTurnOffSubtitles = enablerModule.captureAndTurnOffSubtitles;
       if (enablerModule.disableShowingTextTracks) disableShowingTextTracks = enablerModule.disableShowingTextTracks;
+      if (enablerModule.isVideoReadyForSubtitles) isVideoReadyForSubtitles = enablerModule.isVideoReadyForSubtitles;
 
       const nativeModule = await import(chrome.runtime.getURL('src/shared/native-caption.js'));
       if (nativeModule.findNativeCaptionElements) findNativeCaptionElements = nativeModule.findNativeCaptionElements;
@@ -174,6 +177,7 @@
     recentEnglish: [],
     hiddenNativeCount: 0,
     videoFoundAt: 0,
+    videoReadyAt: 0,
     lastCueSeenAt: 0,
     lastEnsureAt: 0,
     uiAttempts: 0,
@@ -253,7 +257,7 @@
           state.overlayElement.classList.add('hidden');
         }
       }
-      if (state.videoElement) {
+      if (state.videoElement && isVideoReadyForSubtitles(state.videoElement)) {
         triggerAutoCaptureAndTurnOff();
       }
     } else {
@@ -301,7 +305,7 @@
     state.lastEnsureAt = Date.now();
     state.uiAttempts++;
 
-    captureAndTurnOffSubtitles(state.videoElement, state.playerContainer || document.body, {
+    captureAndTurnOffSubtitles(state.videoElement, document.body || state.playerContainer, {
       hasCapturedCues: () => state.interceptedCues.length > 0,
       minHoldMs: 1200,
       maxHoldMs: 2500,
@@ -325,28 +329,39 @@
       disableShowingTextTracks(state.videoElement);
     }
 
-    const now = Date.now();
+    // Wait until the video has loaded its stream and started playing before touching the subtitle menu
+    if (!isVideoReadyForSubtitles(state.videoElement)) {
+      return;
+    }
 
-    // If we have not captured any cues yet after video load/refresh, trigger after 1.5s
+    const now = Date.now();
+    if (!state.videoReadyAt) {
+      state.videoReadyAt = now;
+    }
+
+    // Give HBO Max an additional 2s after playback becomes ready so subtitle options populate in the menu
+    if (now - state.videoReadyAt < 2000) {
+      return;
+    }
+
+    // If we have not captured any cues yet after video is ready, trigger auto-capture
     if (state.interceptedCues.length === 0) {
-      const waitSinceVideo = now - state.videoFoundAt;
-      if (waitSinceVideo < 1500) return;
-      const spacing = state.uiAttempts < 3 ? 2500 : 20000;
+      const spacing = state.uiAttempts < 3 ? 3500 : 20000;
       if (now - state.lastEnsureAt < spacing) return;
       triggerAutoCaptureAndTurnOff();
       return;
     }
 
     // Recently saw dialogue => subtitles are on.
-    const idleMs = now - Math.max(state.lastCueSeenAt, state.videoFoundAt);
-    const idleNeeded = state.lastCueSeenAt ? 15000 : 4000;
+    const idleMs = now - Math.max(state.lastCueSeenAt, state.videoReadyAt);
+    const idleNeeded = state.lastCueSeenAt ? 15000 : 5000;
     if (idleMs < idleNeeded) return;
 
     // A cue is coming up soon or we already have cues covering ahead => we are good.
     const t = state.videoElement.currentTime || 0;
     if (state.interceptedCues.some((c) => c.endTime > t)) return;
 
-    const spacing = state.uiAttempts < 3 ? 3000 : 30000;
+    const spacing = state.uiAttempts < 3 ? 4000 : 30000;
     if (now - state.lastEnsureAt < spacing) return;
     triggerAutoCaptureAndTurnOff();
   }
@@ -773,6 +788,7 @@
       state.recentEnglish = [];
       state.lastCueSeenAt = 0;
       state.videoFoundAt = Date.now();
+      state.videoReadyAt = 0;
       state.uiAttempts = 0;
       clearSubtitleOverlay();
     }
@@ -781,6 +797,7 @@
     if (video && video !== state.videoElement) {
       state.videoElement = video;
       state.videoFoundAt = Date.now();
+      state.videoReadyAt = 0;
       state.lastCueSeenAt = 0;
       state.uiAttempts = 0;
       attachTrackListeners(video);

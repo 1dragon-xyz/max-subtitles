@@ -24,6 +24,24 @@ export function isEnglishTrack(track) {
 }
 
 /**
+ * Checks whether the HTML5 video element has loaded enough data and started playback
+ * so that HBO Max's player has populated its subtitle tracks in the menu.
+ * @param {HTMLVideoElement|object} video
+ * @returns {boolean}
+ */
+export function isVideoReadyForSubtitles(video) {
+  if (!video) return false;
+  if (typeof video.readyState === 'number' && video.readyState < 3) return false;
+  if (video.paused === true) return false;
+
+  const currentTime = Number(video.currentTime) || 0;
+  const hasTracks = Boolean(video.textTracks && video.textTracks.length > 0);
+  if (hasTracks && currentTime >= 0.5) return true;
+
+  return currentTime >= 1.5;
+}
+
+/**
  * Ensures an English text track is producing cues WITHOUT rendering natively:
  * a 'disabled' track becomes 'hidden' (cues load and fire events, nothing is drawn).
  * Tracks that are already 'hidden'/'showing' are left alone.
@@ -143,6 +161,76 @@ export function findOffOptionElement(dialog) {
 }
 
 /**
+ * Finds the Close [X] button inside the Audio & Subtitles dialog/panel.
+ * Supports explicit aria-label/data-testid as well as HBO Max's icon-only <button><svg>...</svg></button>
+ * rendered inside the subtitle panel near the "Phụ đề" / "Subtitles" heading.
+ * @param {HTMLElement|Document|object} dialog
+ * @param {HTMLElement|object|null} [excludeBtn]
+ * @returns {HTMLElement|null}
+ */
+export function findCloseDialogButton(dialog, excludeBtn = null) {
+  if (!dialog) return null;
+
+  if (typeof dialog.querySelector === 'function') {
+    const closeSelectors = [
+      'button[aria-label*="Close" i]',
+      'button[aria-label*="Đóng" i]',
+      'button[aria-label*="Thoát" i]',
+      '[data-testid*="close" i]',
+      '[data-testid*="dismiss" i]'
+    ];
+    for (const sel of closeSelectors) {
+      try {
+        const btn = dialog.querySelector(sel);
+        if (btn && btn !== excludeBtn) return btn;
+      } catch (_) {}
+    }
+  }
+
+  if (typeof dialog.querySelectorAll !== 'function') return null;
+
+  const nodes = Array.from(
+    dialog.querySelectorAll('button, [role="button"], [role="radio"], [role="menuitem"], [role="option"], div, label, span')
+  );
+  const textOf = (el) => (el.textContent || '').trim();
+  const heading = nodes.find((el) => SUBTITLE_HEADING_RE.test(textOf(el)));
+
+  // Look for an icon-only button inside the panel containing the "Phụ đề" / "Subtitles" heading
+  if (heading) {
+    let panel = heading.parentElement;
+    for (let depth = 0; depth < 5 && panel; depth++) {
+      if (typeof panel.querySelectorAll === 'function') {
+        const buttons = Array.from(panel.querySelectorAll('button, [role="button"]')).filter(
+          (b) =>
+            b !== excludeBtn &&
+            textOf(b) === '' &&
+            (typeof b.querySelector !== 'function' || b.querySelector('svg, path, img') !== null)
+        );
+        if (buttons.length > 0) {
+          return buttons[0];
+        }
+      }
+      panel = panel.parentElement;
+    }
+
+    // Fallback: icon-only button with an SVG in the dialog when heading is visible
+    const iconButtons = nodes.filter(
+      (b) =>
+        b !== excludeBtn &&
+        (b.tagName === 'BUTTON' || (b.getAttribute && b.getAttribute('role') === 'button')) &&
+        textOf(b) === '' &&
+        typeof b.querySelector === 'function' &&
+        b.querySelector('svg') !== null
+    );
+    if (iconButtons.length === 1) {
+      return iconButtons[0];
+    }
+  }
+
+  return null;
+}
+
+/**
  * Ensures no native HTML5 textTracks are in 'showing' mode so native browser captions never overlap.
  * @param {HTMLVideoElement|object} video
  */
@@ -202,8 +290,10 @@ export async function captureAndTurnOffSubtitles(
   try {
     btn.click();
 
+    // Wait up to ~2.5s (25 polls) for "English" / "Tiếng Anh" to populate in the menu
+    // (on initial video load, HBO Max may briefly show only "Tắt" / "Off" for 1-2s before tracks appear)
     let enOption = null;
-    for (let i = 0; i < 8 && !enOption; i++) {
+    for (let i = 0; i < 25 && !enOption; i++) {
       await sleep(Math.min(100, pollIntervalMs));
       enOption = findEnglishOptionElement(container);
     }
@@ -225,7 +315,7 @@ export async function captureAndTurnOffSubtitles(
       if (!offOption) {
         // Re-open menu if selecting English auto-closed it
         btn.click();
-        for (let i = 0; i < 6 && !offOption; i++) {
+        for (let i = 0; i < 8 && !offOption; i++) {
           await sleep(Math.min(100, pollIntervalMs));
           offOption = findOffOptionElement(container);
         }
@@ -236,20 +326,24 @@ export async function captureAndTurnOffSubtitles(
         log('auto-capture: switched HBO native subtitles back to Off/Tắt');
       }
     } else {
-      log('auto-capture: English subtitle option not found');
+      log('auto-capture: English subtitle option not yet populated in menu');
     }
 
     disableShowingTextTracks(video);
 
+    // Ensure the subtitle menu/dialog is completely closed so it never stays stuck on screen
     await sleep(Math.min(80, pollIntervalMs));
-    const close =
-      typeof container.querySelector === 'function'
-        ? container.querySelector(
-            'button[aria-label*="Close" i], button[aria-label*="Đóng" i], [data-testid*="close" i]'
-          )
-        : null;
-    if (close) close.click();
-    else if (!enOption) btn.click();
+    const closeBtn = findCloseDialogButton(container, btn);
+    if (closeBtn && typeof closeBtn.click === 'function') {
+      closeBtn.click();
+    } else if (findOffOptionElement(container) || !enOption) {
+      // No close button found and menu is still open -> toggle the Audio/Subtitles button to close it
+      btn.click();
+    }
+
+    if (typeof document !== 'undefined' && typeof KeyboardEvent !== 'undefined') {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+    }
   } catch (err) {
     log('auto-capture: error', String(err));
   } finally {

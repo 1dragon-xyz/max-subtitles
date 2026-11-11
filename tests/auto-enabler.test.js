@@ -5,9 +5,11 @@ import {
   captureAndTurnOffSubtitles,
   disableShowingTextTracks,
   findAudioSubtitleButton,
+  findCloseDialogButton,
   findEnglishOptionElement,
   findOffOptionElement,
-  isEnglishTrack
+  isEnglishTrack,
+  isVideoReadyForSubtitles
 } from '../src/shared/auto-enabler.js';
 
 test('isEnglishTrack - identifies English tracks by language code or (localized) label', () => {
@@ -174,4 +176,114 @@ test('captureAndTurnOffSubtitles - turns English ON briefly (1-2s), captures cue
   assert.equal(result, true);
   assert.deepEqual(clicks, ['menu-btn', 'sub-en', 'sub-off', 'close-btn']);
   assert.equal(mockVideo.textTracks[0].mode, 'hidden');
+});
+
+test('isVideoReadyForSubtitles - returns false while video is still loading and true once playing/ready', () => {
+  assert.equal(isVideoReadyForSubtitles(null), false);
+  // Still loading (readyState < 3, currentTime 0, no tracks)
+  assert.equal(isVideoReadyForSubtitles({ readyState: 1, currentTime: 0, textTracks: [] }), false);
+  // Video has started playing past 1.5s with readyState >= 3
+  assert.equal(isVideoReadyForSubtitles({ readyState: 3, currentTime: 1.8, textTracks: [] }), true);
+  // Or video has already populated textTracks and metadata is loaded
+  assert.equal(
+    isVideoReadyForSubtitles({
+      readyState: 3,
+      currentTime: 0.6,
+      textTracks: [{ language: 'en', label: 'English' }]
+    }),
+    true
+  );
+});
+
+test('findCloseDialogButton - finds close button by aria-label, data-testid, or icon button inside subtitle menu', () => {
+  const closeByAria = {
+    tagName: 'BUTTON',
+    textContent: '',
+    getAttribute: (n) => (n === 'aria-label' ? 'Đóng' : null)
+  };
+  assert.equal(
+    findCloseDialogButton({
+      querySelector: () => closeByAria,
+      querySelectorAll: () => [closeByAria]
+    }),
+    closeByAria
+  );
+
+  // When HBO Max renders an icon-only [X] button inside the subtitle menu without aria-label="Close"
+  const svgIconCloseBtn = {
+    tagName: 'BUTTON',
+    textContent: '',
+    getAttribute: () => null,
+    querySelector: (sel) => (sel === 'svg' ? {} : null)
+  };
+  const subHeading = option('Phụ đề');
+  const offOpt = option('Tắt');
+  const menuPanel = {
+    contains: (el) => el === svgIconCloseBtn || el === subHeading || el === offOpt,
+    querySelectorAll: () => [svgIconCloseBtn]
+  };
+  subHeading.parentElement = menuPanel;
+
+  const mockDialog = {
+    querySelector: () => null,
+    querySelectorAll: () => [svgIconCloseBtn, subHeading, offOpt]
+  };
+  assert.equal(findCloseDialogButton(mockDialog), svgIconCloseBtn);
+});
+
+test('captureAndTurnOffSubtitles - waits for delayed English option when menu initially shows only Tắt, and always closes menu', async () => {
+  const clicks = [];
+  let menuOpen = false;
+  let pollCount = 0;
+  let cuesCaptured = false;
+
+  const btn = {
+    tagName: 'BUTTON',
+    getAttribute: (n) => (n === 'aria-label' ? 'Âm thanh và phụ đề' : null),
+    click: () => {
+      clicks.push('menu-btn');
+      menuOpen = !menuOpen;
+    }
+  };
+  const offOpt = {
+    textContent: 'Tắt',
+    getAttribute: (n) => (n === 'data-testid' ? 'subtitle-option-off' : null),
+    click: () => clicks.push('sub-off')
+  };
+  const enOpt = {
+    textContent: 'Tiếng Anh',
+    getAttribute: (n) => (n === 'data-testid' ? 'subtitle-option-en' : null),
+    click: () => {
+      clicks.push('sub-en');
+      cuesCaptured = true;
+    }
+  };
+
+  // Simulate HBO Max taking several polls after menu opens before "Tiếng Anh" appears alongside "Tắt"
+  const mockContainer = {
+    querySelector: (sel) => (sel.includes('phụ đề') ? btn : null),
+    querySelectorAll: () => {
+      if (!menuOpen) return [];
+      pollCount++;
+      return pollCount < 4 ? [offOpt] : [offOpt, enOpt];
+    }
+  };
+  const mockVideo = {
+    readyState: 4,
+    currentTime: 2.5,
+    textTracks: []
+  };
+
+  const result = await captureAndTurnOffSubtitles(mockVideo, mockContainer, {
+    hasCapturedCues: () => cuesCaptured,
+    minHoldMs: 40,
+    maxHoldMs: 200,
+    pollIntervalMs: 20
+  });
+
+  assert.equal(result, true);
+  assert.equal(clicks.includes('sub-en'), true);
+  assert.equal(clicks.includes('sub-off'), true);
+  // Even without a dedicated close button, it toggled menu-btn again to close the still-open menu
+  assert.equal(menuOpen, false);
 });

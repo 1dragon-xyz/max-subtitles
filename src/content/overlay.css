@@ -33,6 +33,9 @@ video::cue {
 /* 2b. Prevent visual flicker when auto-enabling English subtitles */
 .max-vietsub-silent-dialog [role="dialog"],
 .max-vietsub-silent-dialog div[class*="AudioSubtitle"],
+.max-vietsub-silent-dialog div[class*="TrackPicker"],
+.max-vietsub-silent-dialog div[class*="SubtitlePicker"],
+.max-vietsub-silent-dialog [data-testid*="track-picker" i],
 .max-vietsub-silent-dialog div[class*="Drawer"] {
   opacity: 0 !important;
   pointer-events: none !important;
