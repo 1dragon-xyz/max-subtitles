@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate JavaScript Syntax
+        run: |
+          node -c src/shared/*.js
+          node -c src/background/*.js
+          node -c src/content/*.js
+          node -c src/popup/*.js
+
+      - name: Run Unit & Integration Tests
+        run: npm test
+
+      - name: Test Production Packaging Build
+        run: |
+          npm run build
+          python3 -c "
+          import zipfile, os, sys
+          zip_files = [f for f in os.listdir('dist') if f.endswith('.zip')]
+          if not zip_files:
+              print('Error: No zip found in dist/', file=sys.stderr)
+              sys.exit(1)
+          z = zipfile.ZipFile(os.path.join('dist', zip_files[0]))
+          names = z.namelist()
+          assert 'manifest.json' in names, 'manifest.json missing at root'
+          assert 'src/background/service-worker.js' in names, 'service worker missing'
+          assert 'src/content/content.js' in names, 'content script missing'
+          print(f'Zip validation passed! Total files: {len(names)}')
+          "

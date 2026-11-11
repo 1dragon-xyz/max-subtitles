@@ -433,6 +433,18 @@
       state.observedTracks.add(track);
 
       if (track.kind === 'subtitles' || track.kind === 'captions') {
+        // If extension is active and track is disabled, attempt to set track.mode = 'hidden'
+        // so the browser collects cues in background without showing native text
+        if (state.enabled && track.mode === 'disabled') {
+          const lang = (track.language || '').toLowerCase();
+          const label = (track.label || '').toLowerCase();
+          if (lang.startsWith('en') || label.includes('english') || !lang) {
+            try {
+              track.mode = 'hidden';
+            } catch (_) {}
+          }
+        }
+
         track.addEventListener('cuechange', () => {
           syncAllSubtitleSources();
         });

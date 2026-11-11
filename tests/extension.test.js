@@ -97,4 +97,5 @@ test('service-worker.js, page-hook.js, and content.js - files exist and have val
   assert.ok(contentJs.includes('textTracks') || contentJs.includes('MutationObserver'), 'content.js must monitor textTracks or DOM mutations');
   assert.ok(contentJs.includes('max-vietsub-overlay'), 'content.js must reference max-vietsub-overlay');
   assert.ok(contentJs.includes('notranslate'), 'content.js must add notranslate class to prevent Chrome page translate from turning Mở Đầu into Open Head');
+  assert.ok(contentJs.includes('track.mode = \'hidden\''), 'content.js must attempt to switch English textTrack to hidden mode for background cue gathering');
 });
