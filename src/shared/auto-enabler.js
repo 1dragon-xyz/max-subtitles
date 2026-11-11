@@ -1,11 +1,15 @@
 /**
  * Max VietSub - Automatic English Subtitle Enabler
- * Safely activates English subtitles in HBO Max's player so dialogue cues flow
- * consistently without requiring the user to manually click player menus every time.
+ * Makes sure HBO Max is producing English cues, even when the user left subtitles OFF.
+ * The HBO UI can be localized (e.g. Vietnamese), so labels are matched in both languages.
  */
 
+const ENGLISH_OPTION_RE = /^(english|tiếng anh)(\s*[[(-]?\s*cc\s*[\])]?)?$/i;
+const SUBTITLE_HEADING_RE = /^(phụ đề|subtitles?|captions?|closed captions?)$/i;
+const AUDIO_SUB_LABEL_RE = /(âm thanh|audio).*(phụ đề|subtitle|caption)|phụ đề|subtitles?|captions?/i;
+const FOLLOWING = 4; // Node.DOCUMENT_POSITION_FOLLOWING
+
 /**
- * Checks whether a given text track represents English subtitles or captions.
  * @param {TextTrack|object} track
  * @returns {boolean}
  */
@@ -15,146 +19,147 @@ export function isEnglishTrack(track) {
   const label = (track.label || '').toLowerCase().trim();
 
   if (lang.startsWith('en') || lang === 'eng') return true;
-  if (label.includes('english') || label.includes('en [cc]') || label.includes('en cc')) return true;
-
-  return false;
+  return label.includes('english') || label.includes('tiếng anh') || label.includes('en [cc]');
 }
 
 /**
- * Attempts to activate native English text tracks directly on the HTML5 video element.
- * Setting track.mode = 'showing' tells the media engine to fetch and parse cues.
- * (Native cues remain invisible to the user thanks to overlay.css ::cue rules).
+ * Ensures an English text track is producing cues WITHOUT rendering natively:
+ * a 'disabled' track becomes 'hidden' (cues load and fire events, nothing is drawn).
+ * Tracks that are already 'hidden'/'showing' are left alone.
  * @param {HTMLVideoElement|object} video
- * @returns {boolean} True if an English track was found and activated
+ * @returns {boolean} True if an English track exists and is not disabled
  */
 export function activateEnglishTextTrack(video) {
-  if (!video || !video.textTracks || video.textTracks.length === 0) {
-    return false;
-  }
+  if (!video || !video.textTracks || video.textTracks.length === 0) return false;
 
-  let activated = false;
+  let active = false;
   for (let i = 0; i < video.textTracks.length; i++) {
     const track = video.textTracks[i];
-    if (isEnglishTrack(track)) {
-      try {
-        if (track.mode !== 'showing') {
-          track.mode = 'showing';
-        }
-        activated = true;
-      } catch (_) {}
-    }
+    if (!isEnglishTrack(track)) continue;
+    try {
+      if (track.mode === 'disabled') track.mode = 'hidden';
+    } catch (_) {}
+    if (track.mode !== 'disabled') active = true;
   }
-
-  return activated;
+  return active;
 }
 
 /**
- * Finds the Audio & Subtitles button in the HBO Max player control bar.
+ * Finds the Audio & Subtitles button in the player control bar (English or localized label).
  * @param {HTMLElement|Document|object} container
  * @returns {HTMLElement|null}
  */
 export function findAudioSubtitleButton(container) {
-  if (!container || typeof container.querySelector !== 'function') {
-    return null;
+  if (!container) return null;
+
+  if (typeof container.querySelector === 'function') {
+    const selectors = [
+      'button[aria-label*="Audio and Subtitles" i]',
+      'button[aria-label*="Audio and Captions" i]',
+      'button[aria-label*="Subtitles and Audio" i]',
+      'button[aria-label*="Audio & Subtitles" i]',
+      'button[aria-label*="phụ đề" i]',
+      'button[data-testid*="audio-subtitle" i]',
+      'button[data-testid*="subtitle-button" i]'
+    ];
+    for (const sel of selectors) {
+      try {
+        const btn = container.querySelector(sel);
+        if (btn) return btn;
+      } catch (_) {}
+    }
   }
 
-  const selectors = [
-    'button[aria-label*="Audio and Subtitles" i]',
-    'button[aria-label*="Audio and Captions" i]',
-    'button[aria-label*="Subtitles and Audio" i]',
-    'button[aria-label*="Audio & Subtitles" i]',
-    'button[aria-label*="Subtitles" i]',
-    'button[data-testid*="audio-subtitle" i]',
-    'button[data-testid*="subtitle-button" i]'
-  ];
-
-  for (const sel of selectors) {
-    try {
-      const btn = container.querySelector(sel);
-      if (btn) return btn;
-    } catch (_) {}
+  if (typeof container.querySelectorAll === 'function') {
+    for (const btn of container.querySelectorAll('button, [role="button"]')) {
+      const label = [
+        btn.getAttribute && btn.getAttribute('aria-label'),
+        btn.getAttribute && btn.getAttribute('title'),
+        btn.getAttribute && btn.getAttribute('data-testid')
+      ]
+        .filter(Boolean)
+        .join(' ');
+      if (label && AUDIO_SUB_LABEL_RE.test(label)) return btn;
+    }
   }
-
   return null;
 }
 
 /**
- * Locates the English subtitle option inside the opened Audio & Subtitles dialog.
+ * Finds the English SUBTITLE option in the opened menu. The menu also lists audio languages,
+ * so when the choice is ambiguous we refuse to click instead of switching the audio track.
  * @param {HTMLElement|Document|object} dialog
  * @returns {HTMLElement|null}
  */
 export function findEnglishOptionElement(dialog) {
-  if (!dialog || typeof dialog.querySelectorAll !== 'function') {
-    return null;
+  if (!dialog || typeof dialog.querySelectorAll !== 'function') return null;
+
+  const nodes = Array.from(dialog.querySelectorAll('button, [role="radio"], [role="menuitem"], [role="option"], div, label, span'));
+  const textOf = (el) => (el.textContent || '').trim();
+  const testIdOf = (el) => ((el.getAttribute && el.getAttribute('data-testid')) || '').toLowerCase();
+
+  const english = nodes.filter((el) => ENGLISH_OPTION_RE.test(textOf(el)) || testIdOf(el).includes('subtitle-option-en'));
+  if (english.length === 0) return null;
+
+  const heading = nodes.find((el) => SUBTITLE_HEADING_RE.test(textOf(el)));
+  if (heading && typeof heading.compareDocumentPosition === 'function') {
+    const afterHeading = english.filter((el) => heading.compareDocumentPosition(el) & FOLLOWING);
+    return afterHeading[0] || null;
   }
 
-  const candidates = dialog.querySelectorAll('button, [role="radio"], [role="menuitem"], [role="option"], div, label, span');
-  for (const el of candidates) {
-    const text = (el.textContent || '').trim();
-    const testId = (el.getAttribute && el.getAttribute('data-testid')) || '';
-
-    // Must be English, not "Off" / "Tắt"
-    if (/^english(\s*(\[cc\]|- cc))?$/i.test(text) || testId.toLowerCase().includes('subtitle-option-en')) {
-      return el;
-    }
-  }
-
-  return null;
+  return english.length === 1 ? english[0] : null;
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /**
- * Silently ensures that English subtitles are active on the video.
+ * Best-effort: make sure English cues are flowing.
+ * 1) text track path (cheap, no UI). 2) optional invisible UI path (open menu → pick English → close).
  * @param {HTMLVideoElement} video
- * @param {HTMLElement} [container=document.body]
+ * @param {HTMLElement} [container]
+ * @param {{allowUi?: boolean, log?: Function}} [opts]
  * @returns {Promise<boolean>}
  */
-export async function ensureEnglishSubtitlesActive(video, container = (typeof document !== 'undefined' ? document.body : null)) {
-  // 1. First attempt: Direct HTML5 textTracks activation
-  if (activateEnglishTextTrack(video)) {
-    return true;
-  }
+export async function ensureEnglishSubtitlesActive(
+  video,
+  container = typeof document !== 'undefined' ? document.body : null,
+  { allowUi = true, log = () => {} } = {}
+) {
+  if (activateEnglishTextTrack(video)) return true;
+  if (!allowUi || !container) return false;
 
-  if (!container) return false;
-
-  // 2. Second attempt: Silent UI selection
   const btn = findAudioSubtitleButton(container);
-  if (!btn) return false;
+  if (!btn) {
+    log('auto-enable: audio/subtitle button not found');
+    return false;
+  }
 
   const docEl = typeof document !== 'undefined' ? document.documentElement : null;
   if (docEl) docEl.classList.add('max-vietsub-silent-dialog');
 
   try {
-    // Open menu
     btn.click();
-    await new Promise((r) => setTimeout(r, 60));
-
-    const dialog = container.querySelector('[role="dialog"], div[class*="AudioSubtitle"], div[class*="Drawer"]');
-    if (dialog) {
-      const englishOption = findEnglishOptionElement(dialog);
-      if (englishOption) {
-        englishOption.click();
-      }
-
-      // Close menu
-      const closeBtn = dialog.querySelector('button[aria-label*="Close" i], [data-testid*="close" i]');
-      if (closeBtn) {
-        closeBtn.click();
-      } else {
-        btn.click();
-      }
+    let option = null;
+    for (let i = 0; i < 8 && !option; i++) {
+      await sleep(100);
+      option = findEnglishOptionElement(container);
+    }
+    if (option) {
+      option.click();
+      log('auto-enable: clicked English subtitle option');
     } else {
-      // Re-click button to dismiss if dialog wasn't captured
-      btn.click();
+      log('auto-enable: English subtitle option not found/ambiguous; not clicking anything');
     }
-  } catch (_) {
+
+    await sleep(100);
+    const close = container.querySelector('button[aria-label*="Close" i], button[aria-label*="Đóng" i], [data-testid*="close" i]');
+    if (close) close.click();
+    else if (!option) btn.click();
+  } catch (err) {
+    log('auto-enable: error', String(err));
   } finally {
-    if (docEl) {
-      setTimeout(() => {
-        docEl.classList.remove('max-vietsub-silent-dialog');
-      }, 100);
-    }
+    if (docEl) setTimeout(() => docEl.classList.remove('max-vietsub-silent-dialog'), 300);
   }
 
-  // Final check on text tracks after UI click
   return activateEnglishTextTrack(video);
 }

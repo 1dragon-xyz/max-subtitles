@@ -116,20 +116,19 @@
       .join('<br>');
   };
 
-  let ensureEnglishSubtitlesActive = async (video, container) => {
-    if (!video || !video.textTracks) return false;
-    for (let i = 0; i < video.textTracks.length; i++) {
-      const track = video.textTracks[i];
-      const lang = (track.language || '').toLowerCase();
-      const label = (track.label || '').toLowerCase();
-      if (lang.startsWith('en') || label.includes('english')) {
-        try {
-          if (track.mode !== 'showing') track.mode = 'showing';
-          return true;
-        } catch (_) {}
-      }
+  let ensureEnglishSubtitlesActive = async () => false;
+  let findNativeCaptionElements = () => [];
+
+  // Opt-in diagnostics: run  localStorage.maxVietSubDebug = '1'  in the page console, then reload.
+  const debugEnabled = () => {
+    try {
+      return localStorage.getItem('maxVietSubDebug') === '1';
+    } catch (_) {
+      return false;
     }
-    return false;
+  };
+  const dbg = (...args) => {
+    if (debugEnabled()) console.info('[MaxVietSub]', ...args);
   };
 
   try {
@@ -146,9 +145,12 @@
 
       const enablerModule = await import(chrome.runtime.getURL('src/shared/auto-enabler.js'));
       if (enablerModule.ensureEnglishSubtitlesActive) ensureEnglishSubtitlesActive = enablerModule.ensureEnglishSubtitlesActive;
+
+      const nativeModule = await import(chrome.runtime.getURL('src/shared/native-caption.js'));
+      if (nativeModule.findNativeCaptionElements) findNativeCaptionElements = nativeModule.findNativeCaptionElements;
     }
-  } catch (_) {
-    // Fallback functions remain active
+  } catch (err) {
+    dbg('shared module import failed', String(err));
   }
 
   // --- State Configuration ---
@@ -164,7 +166,14 @@
     domObserver: null,
     interceptedCues: [],
     interceptedCueKeys: new Set(),
-    localTranslations: new Map()
+    localTranslations: new Map(),
+    recentEnglish: [],
+    hiddenNativeCount: 0,
+    videoFoundAt: 0,
+    lastCueSeenAt: 0,
+    lastEnsureAt: 0,
+    uiAttempts: 0,
+    lastCoverageLogAt: 0
   };
 
   // --- Listen to MAIN World Page Hook (Network VTT/TTML + addCue) ---
@@ -191,6 +200,12 @@
             });
           }
         }
+      }
+      if (debugEnabled() && Date.now() - state.lastCoverageLogAt > 2000) {
+        state.lastCoverageLogAt = Date.now();
+        const maxEnd = state.interceptedCues.reduce((m, c) => Math.max(m, c.endTime), 0);
+        const dur = state.videoElement ? state.videoElement.duration : NaN;
+        dbg(`cues=${state.interceptedCues.length}, covered up to ${maxEnd.toFixed(0)}s of ${Number.isFinite(dur) ? dur.toFixed(0) : '?'}s (source: ${event.data.sourceType})`);
       }
       // Pre-warm translation for upcoming cues near current playback time
       prewarmUpcomingCues();
@@ -234,16 +249,63 @@
         }
       }
       if (state.videoElement) {
-        ensureEnglishSubtitlesActive(state.videoElement, state.playerContainer || document.body);
+        ensureEnglishSubtitlesActive(state.videoElement, state.playerContainer || document.body, { log: dbg });
       }
     } else {
       document.documentElement.classList.remove('max-vietsub-active');
       document.body?.classList.remove('max-vietsub-active');
+      document.querySelectorAll('[data-max-vietsub-hidden]').forEach((el) => el.removeAttribute('data-max-vietsub-hidden'));
+      state.hiddenNativeCount = 0;
       if (state.overlayElement) {
         state.overlayElement.classList.add('hidden');
         state.overlayElement.innerHTML = '';
       }
     }
+  }
+
+  // --- Hide HBO's own English caption (found by matching its text, not by class name) ---
+  function hideNativeCaptions() {
+    if (!state.enabled || state.recentEnglish.length === 0) return;
+    const root = state.playerContainer || document.body;
+    const skipTags = new Set(['BUTTON', 'A', 'VIDEO', 'SCRIPT', 'STYLE', 'INPUT']);
+    const els = findNativeCaptionElements(
+      root,
+      state.recentEnglish.join('\n'),
+      (el) => el.id === 'max-vietsub-overlay' || skipTags.has(el.tagName)
+    );
+    for (const el of els) {
+      if (el.getAttribute('data-max-vietsub-hidden') !== 'true') {
+        el.setAttribute('data-max-vietsub-hidden', 'true');
+      }
+    }
+    if (els.length !== state.hiddenNativeCount) {
+      state.hiddenNativeCount = els.length;
+      dbg(`hiding ${els.length} native caption element(s)`, els.map((e) => `${e.tagName}.${String(e.className).slice(0, 40)}`));
+    }
+  }
+
+  // --- Keep English cues flowing even if the user left HBO subtitles off ---
+  function maintainEnglishSubtitles() {
+    if (!state.enabled || !state.videoElement) return;
+    const now = Date.now();
+
+    // Recently saw dialogue => subtitles are on.
+    const idleMs = now - Math.max(state.lastCueSeenAt, state.videoFoundAt);
+    const idleNeeded = state.lastCueSeenAt ? 12000 : 3000;
+    if (idleMs < idleNeeded) return;
+
+    // A cue is coming up soon => subtitles are on (just a quiet moment).
+    const t = state.videoElement.currentTime || 0;
+    if (state.interceptedCues.some((c) => c.endTime > t && c.startTime < t + 30)) return;
+
+    const spacing = state.uiAttempts < 3 ? 2000 : 30000;
+    if (now - state.lastEnsureAt < spacing) return;
+    state.lastEnsureAt = now;
+
+    state.uiAttempts++;
+    ensureEnglishSubtitlesActive(state.videoElement, state.playerContainer || document.body, { log: dbg }).then((ok) =>
+      dbg(`ensure English subtitles (attempt ${state.uiAttempts}) ->`, ok)
+    );
   }
 
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
@@ -349,7 +411,16 @@
       return;
     }
 
+    if (sourceType !== state.lastSourceType) dbg('caption source:', sourceType);
     state.lastSourceType = sourceType;
+    state.lastCueSeenAt = Date.now();
+    state.uiAttempts = 0;
+
+    if (!isVietnameseText(cleaned) && state.recentEnglish[state.recentEnglish.length - 1] !== cleaned) {
+      state.recentEnglish.push(cleaned);
+      if (state.recentEnglish.length > 3) state.recentEnglish.shift();
+    }
+    hideNativeCaptions();
 
     if (cleaned === state.currentCleanText) {
       return;
@@ -636,6 +707,7 @@
     }
 
     state.domObserver = new MutationObserver(() => {
+      hideNativeCaptions();
       syncAllSubtitleSources();
     });
 
@@ -655,13 +727,24 @@
       lastUrl = location.href;
       state.interceptedCues = [];
       state.interceptedCueKeys.clear();
+      state.recentEnglish = [];
+      state.lastCueSeenAt = 0;
+      state.videoFoundAt = Date.now();
+      state.uiAttempts = 0;
       clearSubtitleOverlay();
     }
 
     const video = document.querySelector('video');
     if (video && video !== state.videoElement) {
       state.videoElement = video;
+      state.videoFoundAt = Date.now();
+      state.lastCueSeenAt = 0;
+      state.uiAttempts = 0;
       attachTrackListeners(video);
+      dbg(
+        'video found; text tracks:',
+        Array.from(video.textTracks || []).map((t) => `${t.kind}/${t.language}/${t.label}/${t.mode}`)
+      );
       video.addEventListener('timeupdate', syncAllSubtitleSources);
       video.addEventListener('seeking', syncAllSubtitleSources);
       video.addEventListener('seeked', () => {
@@ -675,10 +758,6 @@
 
       if (container) {
         setupDOMCaptionsObserver(container);
-      }
-
-      if (state.enabled) {
-        ensureEnglishSubtitlesActive(video, container);
       }
     }
   }
@@ -698,6 +777,8 @@
     discoverPlayer();
     ensureOverlayAttachment();
     syncAllSubtitleSources();
+    hideNativeCaptions();
+    maintainEnglishSubtitles();
   }, 150);
 
   // Initialize

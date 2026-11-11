@@ -22,6 +22,14 @@ video::cue {
   pointer-events: none !important;
 }
 
+/* 2a. Native HBO caption element found by matching its text to the current English cue
+   (selector-independent; tagged by content.js) */
+[data-max-vietsub-hidden="true"] {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* 2b. Prevent visual flicker when auto-enabling English subtitles */
 .max-vietsub-silent-dialog [role="dialog"],
 .max-vietsub-silent-dialog div[class*="AudioSubtitle"],

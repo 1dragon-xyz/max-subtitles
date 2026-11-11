@@ -28,10 +28,9 @@ jobs:
 
       - name: Validate JavaScript Syntax
         run: |
-          node -c src/shared/*.js
-          node -c src/background/*.js
-          node -c src/content/*.js
-          node -c src/popup/*.js
+          for f in src/shared/*.js src/background/*.js src/content/*.js src/popup/*.js; do
+            node --check "$f"
+          done
 
       - name: Run Unit & Integration Tests
         run: npm test

@@ -78,6 +78,8 @@ test('overlay.css - contains rules to hide native HBO subtitles and style custom
     'overlay.css must NOT broadly hide [data-testid*="subtitle"] because that hides the episode title (M1 T1: Mở Đầu)');
   assert.equal(css.includes('.max-vietsub-active div[class*="subtitle"]'), false,
     'overlay.css must NOT broadly hide div[class*="subtitle"] because that hides SeasonEpisodeSubtitleContainer');
+  assert.match(css, /(^|\n)\[data-max-vietsub-hidden="true"\]\s*\{[^}]*visibility:\s*hidden/,
+    'overlay.css must hide elements tagged by the text-matching native caption hider');
 });
 
 test('service-worker.js, page-hook.js, and content.js - files exist and have valid syntax', () => {
@@ -98,4 +100,6 @@ test('service-worker.js, page-hook.js, and content.js - files exist and have val
   assert.ok(contentJs.includes('max-vietsub-overlay'), 'content.js must reference max-vietsub-overlay');
   assert.ok(contentJs.includes('notranslate'), 'content.js must add notranslate class to prevent Chrome page translate from turning Mở Đầu into Open Head');
   assert.ok(contentJs.includes('ensureEnglishSubtitlesActive'), 'content.js must include ensureEnglishSubtitlesActive for auto-turning on subtitles');
+  assert.ok(contentJs.includes('findNativeCaptionElements'), 'content.js must hide the native HBO caption by matching its text');
+  assert.ok(contentJs.includes('maxVietSubDebug'), 'content.js must support the opt-in debug flag');
 });
