@@ -1,0 +1,16 @@
+# Dependencies & Package Managers
+node_modules/
+package-lock.json
+
+# Build outputs & Archives
+dist/
+*.zip
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Logs & Environment
+*.log
+.env
+.env.*
