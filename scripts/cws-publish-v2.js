@@ -13,9 +13,17 @@ import {
   buildPublishUrl,
   buildStatusUrl,
   buildUploadUrl,
+  getAccessTokenFromRefreshToken,
   parseCwsPublishResponse,
   parseCwsStatusResponse
 } from '../src/shared/cws-api-v2.js';
+
+// Automatically load local runtime environment variables if available
+try {
+  if (typeof process.loadEnvFile === 'function') {
+    process.loadEnvFile();
+  }
+} catch (_) {}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -24,6 +32,21 @@ async function getAccessToken() {
   if (process.env.CWS_ACCESS_TOKEN) {
     return process.env.CWS_ACCESS_TOKEN.trim();
   }
+
+  const clientId = process.env.CWS_CLIENT_ID || process.env.CLIENT_ID;
+  const clientSecret = process.env.CWS_CLIENT_SECRET || process.env.CLIENT_SECRET;
+  const refreshToken =
+    process.env.CWS_REFRESH_TOKEN || process.env.CWS_REFRESHTOKEN || process.env.REFRESH_TOKEN;
+
+  if (clientId && clientSecret && refreshToken) {
+    try {
+      const token = await getAccessTokenFromRefreshToken({ clientId, clientSecret, refreshToken });
+      if (token) return token;
+    } catch (err) {
+      console.warn(`[CWS API v2] OAuth exchange warning: ${err.message}`);
+    }
+  }
+
   try {
     const token = execSync('gcloud auth print-access-token', {
       encoding: 'utf-8',
@@ -31,6 +54,7 @@ async function getAccessToken() {
     }).trim();
     if (token) return token;
   } catch (_) {}
+
   return null;
 }
 
@@ -40,17 +64,14 @@ async function main() {
   const isStatus = args.includes('--status');
   const isPublish = args.includes('--publish');
 
-  const publisherId = process.env.CWS_PUBLISHER_ID;
-  const itemId = process.env.CWS_ITEM_ID;
+  const publisherId = process.env.CWS_PUBLISHER_ID || process.env.PUBLISHER_ID;
+  const itemId =
+    process.env.CWS_ITEM_ID || process.env.CWS_EXTENSION_ID || process.env.EXTENSION_ID;
 
   if (!publisherId || !itemId) {
     console.error(
-      '[CWS API v2] Missing CWS_PUBLISHER_ID or CWS_ITEM_ID.\n' +
-        'Set them via environment variables:\n' +
-        '  export CWS_PUBLISHER_ID="your_publisher_id"\n' +
-        '  export CWS_ITEM_ID="your_32_char_item_id"\n' +
-        '  export CWS_ACCESS_TOKEN="optional_short_lived_token"\n' +
-        'Or authenticate via `gcloud auth application-default login`.'
+      '[CWS API v2] Missing CWS_PUBLISHER_ID or CWS_ITEM_ID (or CWS_EXTENSION_ID).\n' +
+        'Set them via environment variables or define them in your environment.'
     );
     process.exitCode = 1;
     return;

@@ -5,6 +5,7 @@ import {
   buildPublishUrl,
   buildStatusUrl,
   buildUploadUrl,
+  getAccessTokenFromRefreshToken,
   parseCwsPublishResponse,
   parseCwsStatusResponse
 } from '../src/shared/cws-api-v2.js';
@@ -46,6 +47,24 @@ test('parseCwsStatusResponse - extracts uploadState, crxVersion, and validation 
   assert.equal(parsed.uploadState, 'SUCCESS');
   assert.equal(parsed.crxVersion, '1.0.0');
 
+  const fetchStatusData = {
+    itemId: 'abc',
+    lastAsyncUploadState: 'SUCCEEDED',
+    submittedItemRevisionStatus: { crxVersion: '1.0.0' }
+  };
+  const parsedFetch = parseCwsStatusResponse(fetchStatusData);
+  assert.equal(parsedFetch.isSuccess, true);
+  assert.equal(parsedFetch.uploadState, 'SUCCEEDED');
+  assert.equal(parsedFetch.crxVersion, '1.0.0');
+
+  const draftStatusData = {
+    itemId: 'abc',
+    publicKey: 'MIIBI...'
+  };
+  const parsedDraft = parseCwsStatusResponse(draftStatusData);
+  assert.equal(parsedDraft.isSuccess, true);
+  assert.equal(parsedDraft.uploadState, 'READY');
+
   const errorData = {
     kind: 'chromewebstore#itemStatus',
     uploadState: 'FAILURE',
@@ -65,4 +84,32 @@ test('parseCwsPublishResponse - checks status and statusDetail of publish operat
   const res = parseCwsPublishResponse(published);
   assert.equal(res.isPendingReview, true);
   assert.equal(res.status, 'OK');
+});
+
+test('getAccessTokenFromRefreshToken - sends OAuth2 exchange request and returns access_token', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async (url, opts) => {
+      assert.ok(url.includes('oauth2.googleapis.com/token'));
+      assert.ok(opts.body.includes('refresh_token=mock_refresh'));
+      assert.ok(opts.body.includes('client_id=mock_client'));
+      return {
+        ok: true,
+        json: async () => ({
+          access_token: 'mock_access_token_123',
+          expires_in: 3600,
+          token_type: 'Bearer'
+        })
+      };
+    };
+
+    const token = await getAccessTokenFromRefreshToken({
+      clientId: 'mock_client',
+      clientSecret: 'mock_secret_val',
+      refreshToken: 'mock_refresh'
+    });
+    assert.equal(token, 'mock_access_token_123');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

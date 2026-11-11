@@ -5,6 +5,40 @@
 
 export const CWS_API_BASE_URL = 'https://chromewebstore.googleapis.com/v2';
 export const CWS_UPLOAD_BASE_URL = 'https://chromewebstore.googleapis.com/upload/v2';
+export const GOOGLE_OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token';
+
+/**
+ * Exchanges an OAuth2 refresh token for a short-lived access token.
+ * @param {{ clientId: string, clientSecret: string, refreshToken: string }} creds
+ * @returns {Promise<string>}
+ */
+export async function getAccessTokenFromRefreshToken({ clientId, clientSecret, refreshToken }) {
+  if (!clientId || !clientSecret || !refreshToken) {
+    throw new Error('Missing required OAuth credentials (clientId, clientSecret, or refreshToken)');
+  }
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken,
+    grant_type: 'refresh_token'
+  });
+
+  const res = await fetch(GOOGLE_OAUTH_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString()
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.access_token) {
+    throw new Error(
+      `Failed to exchange refresh token: ${data.error_description || data.error || res.statusText}`
+    );
+  }
+
+  return data.access_token;
+}
 
 /**
  * Builds the CWS API v2 package upload URL.
@@ -61,9 +95,18 @@ export function parseCwsStatusResponse(data) {
     };
   }
 
-  const uploadState = data.uploadState || 'UNKNOWN';
-  const isSuccess = uploadState === 'SUCCESS';
-  const crxVersion = data.crxVersion || '';
+  const uploadState =
+    data.uploadState ||
+    data.lastAsyncUploadState ||
+    (data.publicKey || data.itemId ? 'READY' : 'UNKNOWN');
+  const isSuccess =
+    uploadState === 'SUCCESS' || uploadState === 'SUCCEEDED' || uploadState === 'READY';
+  const crxVersion =
+    data.crxVersion ||
+    data.submittedItemRevisionStatus?.crxVersion ||
+    data.publishedItemRevisionStatus?.crxVersion ||
+    data.itemRevisionStatus?.crxVersion ||
+    '';
 
   let errorMessage = '';
   if (!isSuccess) {
