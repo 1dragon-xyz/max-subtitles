@@ -5,7 +5,8 @@ import { translateTextWithFallback } from '../shared/translator.js';
 const translationCache = new TranslationCache(1000);
 
 // Storage key for persistent cache across service worker lifecycles
-const CACHE_STORAGE_KEY = 'max_vietsub_cache_v1';
+const CACHE_STORAGE_KEY = 'max_vietsub_cache_v2';
+const LEGACY_CACHE_KEY = 'max_vietsub_cache_v1';
 const SETTINGS_STORAGE_KEY = 'max_vietsub_settings';
 
 // Hydrate memory cache from chrome.storage.local on startup
@@ -14,6 +15,7 @@ async function hydrateCache() {
     return;
   }
   try {
+    await chrome.storage.local.remove([LEGACY_CACHE_KEY]);
     const data = await chrome.storage.local.get([CACHE_STORAGE_KEY]);
     if (data && data[CACHE_STORAGE_KEY]) {
       const savedEntries = data[CACHE_STORAGE_KEY];

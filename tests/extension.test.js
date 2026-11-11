@@ -74,16 +74,20 @@ test('overlay.css - contains rules to hide native HBO subtitles and style custom
   assert.ok(css.includes('::cue'), 'overlay.css should target video::cue to hide native captions');
   assert.ok(css.includes('#max-vietsub-overlay'), 'overlay.css must style #max-vietsub-overlay');
   assert.ok(css.includes('.max-sub-line'), 'overlay.css must style .max-sub-line');
-  assert.ok(css.includes('display: none') || css.includes('opacity: 0') || css.includes('visibility: hidden'),
-    'overlay.css must have hiding rules for native captions');
+  assert.equal(css.includes('.max-vietsub-active [data-testid*="subtitle"]'), false,
+    'overlay.css must NOT broadly hide [data-testid*="subtitle"] because that hides the episode title (M1 T1: Mở Đầu)');
+  assert.equal(css.includes('.max-vietsub-active div[class*="subtitle"]'), false,
+    'overlay.css must NOT broadly hide div[class*="subtitle"] because that hides SeasonEpisodeSubtitleContainer');
 });
 
-test('service-worker.js and content.js - files exist and have valid syntax', () => {
+test('service-worker.js, page-hook.js, and content.js - files exist and have valid syntax', () => {
   const swPath = path.join(ROOT_DIR, 'src/background/service-worker.js');
   const contentPath = path.join(ROOT_DIR, 'src/content/content.js');
+  const pageHookPath = path.join(ROOT_DIR, 'src/content/page-hook.js');
 
   assert.equal(fs.existsSync(swPath), true, 'service-worker.js must exist');
   assert.equal(fs.existsSync(contentPath), true, 'content.js must exist');
+  assert.equal(fs.existsSync(pageHookPath), true, 'page-hook.js must exist');
 
   const swContent = fs.readFileSync(swPath, 'utf-8');
   assert.ok(swContent.includes('chrome.runtime.onMessage'), 'service-worker must listen to chrome.runtime messages');
@@ -92,4 +96,5 @@ test('service-worker.js and content.js - files exist and have valid syntax', () 
   const contentJs = fs.readFileSync(contentPath, 'utf-8');
   assert.ok(contentJs.includes('textTracks') || contentJs.includes('MutationObserver'), 'content.js must monitor textTracks or DOM mutations');
   assert.ok(contentJs.includes('max-vietsub-overlay'), 'content.js must reference max-vietsub-overlay');
+  assert.ok(contentJs.includes('notranslate'), 'content.js must add notranslate class to prevent Chrome page translate from turning Mở Đầu into Open Head');
 });

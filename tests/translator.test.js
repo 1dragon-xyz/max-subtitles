@@ -68,3 +68,23 @@ test('translateTextWithFallback - uses mock fetch successfully', async () => {
 
   assert.equal(translated, 'Chào bạn');
 });
+
+test('translateTextWithFallback - skips translation when input text is already Vietnamese (prevents "Mở Đầu" -> "Open Head")', async () => {
+  let fetchCalled = false;
+  const mockFetch = async () => {
+    fetchCalled = true;
+    return {
+      ok: true,
+      json: async () => [[['Open Head', 'Mở Đầu', null, null, 3]]]
+    };
+  };
+
+  const result = await translateTextWithFallback('Mở Đầu', {
+    fetchFn: mockFetch,
+    sourceLang: 'en',
+    targetLang: 'vi'
+  });
+
+  assert.equal(result, 'Mở Đầu');
+  assert.equal(fetchCalled, false, 'Should not call Google Translate when text is already in Vietnamese');
+});

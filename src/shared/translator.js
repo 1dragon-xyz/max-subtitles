@@ -1,3 +1,5 @@
+import { isVietnameseText } from './cue-processor.js';
+
 /**
  * Google Translate single API URL builder.
  * @param {string} text Text to translate
@@ -56,6 +58,12 @@ export async function translateTextWithFallback(text, options = {}) {
   } = options;
 
   if (!text || typeof text !== 'string' || !text.trim()) {
+    return text;
+  }
+
+  // If target language is Vietnamese and input already contains Vietnamese diacritics,
+  // return immediately to avoid Google Translate reverse-translating it to English.
+  if (targetLang === 'vi' && isVietnameseText(text)) {
     return text;
   }
 

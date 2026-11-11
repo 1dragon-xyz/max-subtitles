@@ -2,37 +2,24 @@
    Max VietSub - Native Subtitle Suppression & Clean Overlay Styles
    ========================================================================== */
 
-/* 1. Hide native HTML5 video cues */
+/* 1. Hide native HTML5 video cues visually while preserving cue events */
 ::cue,
 video::cue {
-  display: none !important;
-  visibility: hidden !important;
   opacity: 0 !important;
-  font-size: 0px !important;
-  line-height: 0px !important;
   color: transparent !important;
   background: transparent !important;
+  background-color: transparent !important;
   text-shadow: none !important;
 }
 
-/* 2. Hide HBO Max / Max custom DOM caption and subtitle elements */
-.max-vietsub-active [data-testid*="subtitle"],
-.max-vietsub-active [data-testid*="caption"],
-.max-vietsub-active [data-testid*="CueContainer"],
-.max-vietsub-active [data-testid*="cue-container"],
+/* 2. Hide verified caption containers visually without breaking layout or hiding UI titles */
 .max-vietsub-active .shaka-text-container,
-.max-vietsub-active div[class*="CueContainer"],
-.max-vietsub-active div[class*="CaptionContainer"],
-.max-vietsub-active div[class*="SubtitlesContainer"],
-.max-vietsub-active div[class*="subtitle"],
-.max-vietsub-active div[class*="caption-window"],
 .max-vietsub-active .bmpui-ui-subtitle-overlay,
-.max-vietsub-active .player-subtitles,
-.max-vietsub-active .rendered-cues,
-.max-vietsub-active .vjs-text-track-display {
-  display: none !important;
-  visibility: hidden !important;
+.max-vietsub-active .vjs-text-track-display,
+.max-vietsub-active [data-testid="player-ux-text-track"],
+.max-vietsub-active [data-max-vietsub-hidden="true"] {
   opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 /* 3. Pure Vietnamese Subtitle Overlay Container */

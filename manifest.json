@@ -29,6 +29,17 @@
         "src/content/content.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.hbomax.com/*",
+        "*://*.max.com/*"
+      ],
+      "js": [
+        "src/content/page-hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ],
   "action": {
