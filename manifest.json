@@ -1,11 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Max VietSub - Phụ Đề Tiếng Việt Cho HBO Max",
+  "name": "Max Subtitles - Subtitles for HBO Max",
   "version": "1.0.0",
   "description": "Tự động hiển thị phụ đề tiếng Việt chuẩn xác trên HBO Max và Max.com, thay thế phụ đề tiếng Anh gốc.",
   "permissions": [
-    "storage",
-    "activeTab"
+    "storage"
   ],
   "host_permissions": [
     "*://*.max.com/*",
@@ -44,7 +43,7 @@
   ],
   "action": {
     "default_popup": "src/popup/popup.html",
-    "default_title": "Max VietSub Settings",
+    "default_title": "Max Subtitles Settings",
     "default_icon": {
       "16": "icons/icon16.png",
       "48": "icons/icon48.png",

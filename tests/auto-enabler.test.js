@@ -8,8 +8,10 @@ import {
   findCloseDialogButton,
   findEnglishOptionElement,
   findOffOptionElement,
+  getMaxCueEndTime,
   isEnglishTrack,
-  isVideoReadyForSubtitles
+  isVideoReadyForSubtitles,
+  needsSubtitleHorizonRefresh
 } from '../src/shared/auto-enabler.js';
 
 test('isEnglishTrack - identifies English tracks by language code or (localized) label', () => {
@@ -286,4 +288,38 @@ test('captureAndTurnOffSubtitles - waits for delayed English option when menu in
   assert.equal(clicks.includes('sub-off'), true);
   // Even without a dedicated close button, it toggled menu-btn again to close the still-open menu
   assert.equal(menuOpen, false);
+});
+
+test('getMaxCueEndTime - finds the latest endTime across all cues', () => {
+  assert.equal(getMaxCueEndTime([]), 0);
+  assert.equal(getMaxCueEndTime(null), 0);
+  const cues = [
+    { startTime: 10, endTime: 15, text: 'Hello' },
+    { startTime: 25, endTime: 42.5, text: 'World' },
+    { startTime: 18, endTime: 22, text: 'Test' }
+  ];
+  assert.equal(getMaxCueEndTime(cues), 42.5);
+});
+
+test('needsSubtitleHorizonRefresh - detects when video playback is within 20s of the captured subtitle horizon', () => {
+  const cues = [
+    { startTime: 0, endTime: 10, text: 'Intro' },
+    { startTime: 500, endTime: 600, text: 'Mid-episode line' }
+  ];
+  const duration = 1200; // 20-minute episode
+
+  // 1. Current playback at 200s is far from horizon 600s -> false
+  assert.equal(needsSubtitleHorizonRefresh(cues, 200, duration, 20), false);
+
+  // 2. Current playback reaches 585s (within 20s of 600s horizon) and plenty of episode left -> true!
+  assert.equal(needsSubtitleHorizonRefresh(cues, 585, duration, 20), true);
+
+  // 3. Current playback is at 605s (past the horizon!) -> true!
+  assert.equal(needsSubtitleHorizonRefresh(cues, 605, duration, 20), true);
+
+  // 4. Video near end (within 45s of total duration) -> false (avoids looping during credits)
+  assert.equal(needsSubtitleHorizonRefresh(cues, 1180, duration, 20), false);
+
+  // 5. Empty cues -> false (initial setup handles empty cues)
+  assert.equal(needsSubtitleHorizonRefresh([], 50, duration, 20), false);
 });

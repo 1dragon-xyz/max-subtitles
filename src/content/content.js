@@ -121,6 +121,8 @@
   let disableShowingTextTracks = () => {};
   let isVideoReadyForSubtitles = (video) =>
     Boolean(video && (typeof video.readyState !== 'number' || video.readyState >= 3) && (video.currentTime || 0) >= 1.5);
+  let getMaxCueEndTime = () => 0;
+  let needsSubtitleHorizonRefresh = () => false;
   let findNativeCaptionElements = () => [];
 
   // Opt-in diagnostics: run  localStorage.maxVietSubDebug = '1'  in the page console, then reload.
@@ -152,6 +154,8 @@
       if (enablerModule.captureAndTurnOffSubtitles) captureAndTurnOffSubtitles = enablerModule.captureAndTurnOffSubtitles;
       if (enablerModule.disableShowingTextTracks) disableShowingTextTracks = enablerModule.disableShowingTextTracks;
       if (enablerModule.isVideoReadyForSubtitles) isVideoReadyForSubtitles = enablerModule.isVideoReadyForSubtitles;
+      if (enablerModule.getMaxCueEndTime) getMaxCueEndTime = enablerModule.getMaxCueEndTime;
+      if (enablerModule.needsSubtitleHorizonRefresh) needsSubtitleHorizonRefresh = enablerModule.needsSubtitleHorizonRefresh;
 
       const nativeModule = await import(chrome.runtime.getURL('src/shared/native-caption.js'));
       if (nativeModule.findNativeCaptionElements) findNativeCaptionElements = nativeModule.findNativeCaptionElements;
@@ -296,31 +300,37 @@
   // --- Brief Auto-Capture (1-2s) & Turn-Off so English cues are hooked and HBO caption stays OFF ---
   function triggerAutoCaptureAndTurnOff() {
     if (!state.enabled || !state.videoElement || state.isCapturingSubtitles) return;
-    if (state.interceptedCues.length > 0) {
-      disableShowingTextTracks(state.videoElement);
-      return;
-    }
+
+    const prevCount = state.interceptedCues.length;
+    const prevMaxEnd = getMaxCueEndTime(state.interceptedCues);
 
     state.isCapturingSubtitles = true;
     state.lastEnsureAt = Date.now();
     state.uiAttempts++;
 
     captureAndTurnOffSubtitles(state.videoElement, document.body || state.playerContainer, {
-      hasCapturedCues: () => state.interceptedCues.length > 0,
+      hasCapturedCues: () =>
+        prevCount === 0
+          ? state.interceptedCues.length > 0
+          : state.interceptedCues.length > prevCount || getMaxCueEndTime(state.interceptedCues) > prevMaxEnd + 5,
       minHoldMs: 1200,
       maxHoldMs: 2500,
       pollIntervalMs: 150,
       log: dbg
     })
       .then((ok) => {
-        dbg(`captureAndTurnOffSubtitles (attempt ${state.uiAttempts}) ->`, ok, `cues=${state.interceptedCues.length}`);
+        dbg(
+          `captureAndTurnOffSubtitles (attempt ${state.uiAttempts}) ->`,
+          ok,
+          `cues=${state.interceptedCues.length}, maxEnd=${getMaxCueEndTime(state.interceptedCues).toFixed(0)}s`
+        );
       })
       .finally(() => {
         state.isCapturingSubtitles = false;
       });
   }
 
-  // --- Keep English cues flowing even if the user left HBO subtitles off or refreshed ---
+  // --- Keep English cues flowing even if the user left HBO subtitles off, refreshed, or reached mid-video buffer cutoff ---
   function maintainEnglishSubtitles() {
     if (!state.enabled || !state.videoElement || state.isCapturingSubtitles) return;
 
@@ -344,7 +354,7 @@
       return;
     }
 
-    // If we have not captured any cues yet after video is ready, trigger auto-capture
+    // Case 1: Initial capture on video start/refresh
     if (state.interceptedCues.length === 0) {
       const spacing = state.uiAttempts < 3 ? 3500 : 20000;
       if (now - state.lastEnsureAt < spacing) return;
@@ -352,14 +362,28 @@
       return;
     }
 
-    // Recently saw dialogue => subtitles are on.
+    const t = state.videoElement.currentTime || 0;
+    const dur = state.videoElement.duration || 0;
+
+    // Case 2: Horizon refresh (video has only downloaded subtitles up to current segment, e.g. half the video)
+    // When playback approaches within 20s of the furthest cue or past it, proactively fetch the next segment
+    if (needsSubtitleHorizonRefresh(state.interceptedCues, t, dur, 20)) {
+      const spacing = 4000;
+      if (now - state.lastEnsureAt < spacing) return;
+      dbg(
+        `subtitle horizon nearing (current=${t.toFixed(0)}s, maxEnd=${getMaxCueEndTime(state.interceptedCues).toFixed(0)}s); refreshing cues...`
+      );
+      triggerAutoCaptureAndTurnOff();
+      return;
+    }
+
+    // Case 3: Dialogue quiet period check
     const idleMs = now - Math.max(state.lastCueSeenAt, state.videoReadyAt);
     const idleNeeded = state.lastCueSeenAt ? 15000 : 5000;
     if (idleMs < idleNeeded) return;
 
-    // A cue is coming up soon or we already have cues covering ahead => we are good.
-    const t = state.videoElement.currentTime || 0;
-    if (state.interceptedCues.some((c) => c.endTime > t)) return;
+    // If cues ahead already exist, everything is fine
+    if (state.interceptedCues.some((c) => c.endTime > t + 20)) return;
 
     const spacing = state.uiAttempts < 3 ? 4000 : 30000;
     if (now - state.lastEnsureAt < spacing) return;
@@ -372,6 +396,24 @@
         state.enabled = message.settings.enabled !== false;
         if (message.settings.fontSize) {
           state.fontSize = Number(message.settings.fontSize);
+        }
+        updateUIState();
+        if (state.enabled && state.currentCleanText) {
+          requestTranslation(state.currentCleanText);
+        }
+      }
+    });
+  }
+
+  // Real-time settings synchronization via storage.onChanged (requires zero activeTab permission)
+  if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+    chrome.storage.onChanged.addListener((changes, areaName) => {
+      if (areaName === 'sync' || areaName === 'local') {
+        if (changes.enabled !== undefined) {
+          state.enabled = changes.enabled.newValue !== false;
+        }
+        if (changes.fontSize !== undefined) {
+          state.fontSize = Number(changes.fontSize.newValue) || 24;
         }
         updateUIState();
         if (state.enabled && state.currentCleanText) {

@@ -14,6 +14,7 @@ test('manifest.json - exists and conforms to Manifest V3 specification', () => {
 
   assert.equal(manifest.manifest_version, 3, 'manifest_version must be 3');
   assert.equal(typeof manifest.name, 'string');
+  assert.ok(manifest.name.startsWith('Max Subtitles'), 'manifest name should be branded Max Subtitles');
   assert.equal(typeof manifest.version, 'string');
 
   // Background service worker
@@ -24,6 +25,7 @@ test('manifest.json - exists and conforms to Manifest V3 specification', () => {
   // Permissions and host permissions
   assert.ok(Array.isArray(manifest.permissions), 'permissions must be an array');
   assert.ok(manifest.permissions.includes('storage'), 'permissions must include storage');
+  assert.equal(manifest.permissions.includes('activeTab'), false, 'activeTab should be removed to minimize permissions per MWG 1.0');
 
   assert.ok(Array.isArray(manifest.host_permissions), 'host_permissions must be an array');
   const hosts = manifest.host_permissions;
@@ -102,4 +104,17 @@ test('service-worker.js, page-hook.js, and content.js - files exist and have val
   assert.ok(contentJs.includes('ensureEnglishSubtitlesActive'), 'content.js must include ensureEnglishSubtitlesActive for auto-turning on subtitles');
   assert.ok(contentJs.includes('findNativeCaptionElements'), 'content.js must hide the native HBO caption by matching its text');
   assert.ok(contentJs.includes('maxVietSubDebug'), 'content.js must support the opt-in debug flag');
+});
+
+test('CHROMEWEBSTORE.md - conforms to Modern Web Guidance 1.0 template and guidelines', () => {
+  const storeDocPath = path.join(ROOT_DIR, 'CHROMEWEBSTORE.md');
+  assert.equal(fs.existsSync(storeDocPath), true, 'CHROMEWEBSTORE.md must exist in root per MWG 1.0');
+
+  const content = fs.readFileSync(storeDocPath, 'utf-8');
+  assert.ok(content.includes('## Store Listing'), 'must contain Store Listing section');
+  assert.ok(content.includes('Single Purpose'), 'must define Single Purpose');
+  assert.ok(content.includes('## Permissions Justification'), 'must contain Permissions Justification section');
+  assert.ok(content.includes('## Privacy & Data Use'), 'must contain Privacy & Data Use section');
+  assert.ok(content.includes('chrome.storage.sync') || content.includes('storage'), 'must document storage justification');
+  assert.ok(content.includes('Disclaimer:'), 'must include non-affiliation trademark disclaimer');
 });

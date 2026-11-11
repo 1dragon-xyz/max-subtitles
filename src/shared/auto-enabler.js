@@ -24,6 +24,49 @@ export function isEnglishTrack(track) {
 }
 
 /**
+ * Calculates the maximum endTime among all intercepted cues.
+ * @param {Array<{endTime: number}>} cues
+ * @returns {number}
+ */
+export function getMaxCueEndTime(cues) {
+  if (!Array.isArray(cues) || cues.length === 0) return 0;
+  let max = 0;
+  for (let i = 0; i < cues.length; i++) {
+    if (typeof cues[i].endTime === 'number' && cues[i].endTime > max) {
+      max = cues[i].endTime;
+    }
+  }
+  return max;
+}
+
+/**
+ * Checks whether the playback position is nearing or past the current subtitle horizon,
+ * meaning HBO Max has only buffered subtitles up to the current segment and requires
+ * a brief re-activation to download the next segment.
+ *
+ * @param {Array<{endTime: number}>} cues
+ * @param {number} currentTime
+ * @param {number} duration
+ * @param {number} [lookaheadSec=20]
+ * @returns {boolean}
+ */
+export function needsSubtitleHorizonRefresh(cues, currentTime, duration, lookaheadSec = 20) {
+  if (!Array.isArray(cues) || cues.length === 0) return false;
+  if (typeof currentTime !== 'number' || typeof duration !== 'number') return false;
+
+  // If the video is within 45s of the end, do not trigger refresh (avoids credits loops)
+  if (duration > 0 && currentTime >= duration - 45) {
+    return false;
+  }
+
+  const maxEnd = getMaxCueEndTime(cues);
+  if (maxEnd === 0) return false;
+
+  // If current playback is within lookaheadSec (e.g. 20s) of maxEnd, or past it:
+  return maxEnd - currentTime <= lookaheadSec;
+}
+
+/**
  * Checks whether the HTML5 video element has loaded enough data and started playback
  * so that HBO Max's player has populated its subtitle tracks in the menu.
  * @param {HTMLVideoElement|object} video

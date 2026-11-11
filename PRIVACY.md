@@ -1,8 +1,8 @@
-# Privacy Policy for Max VietSub
+# Privacy Policy for Max Subtitles
 
 *Last updated: November 2026*
 
-**Max VietSub** ("the Extension") is committed to protecting your privacy. This Privacy Policy describes how the Extension handles information when you use it on HBO Max (`hbomax.com` and `max.com`).
+**Max Subtitles** ("the Extension") is committed to protecting your privacy. This Privacy Policy describes how the Extension handles information when you use it on HBO Max (`hbomax.com` and `max.com`).
 
 ---
 
@@ -23,7 +23,6 @@ In compliance with the Chrome Web Store Developer Program Policies:
 | Permission | Purpose |
 |---|---|
 | `storage` | Saves user UI preferences (font size, toggle) and maintains local LRU translation cache. |
-| `activeTab` | Sends settings changes from the popup UI to the active HBO Max video tab. |
 | `*://*.hbomax.com/*` & `*://*.max.com/*` | Enables player detection and subtitle rendering on HBO Max playback pages. |
 | `https://translate.googleapis.com/*` | Allows the background service worker to fetch translation of dialogue cues. |
 
@@ -38,10 +37,16 @@ The Extension interacts with:
 
 ## 4. Open Source Transparency
 
-Max VietSub is open-source software licensed under the MIT License. You can inspect the entire codebase, including all network calls and storage handling, on GitHub.
+Max Subtitles is open-source software licensed under the MIT License. You can inspect the entire codebase, including all network calls and storage handling, on GitHub.
 
 ---
 
-## 5. Contact
+## 5. Disclaimer
+
+Max Subtitles is an independent, unofficial open-source extension and is not affiliated with, endorsed by, or sponsored by HBO Max or Warner Bros. Discovery.
+
+---
+
+## 6. Contact
 
 If you have any questions or concerns regarding this Privacy Policy, please open an issue on the project's GitHub repository.

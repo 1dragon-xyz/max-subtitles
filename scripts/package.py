@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Packaging script for Max VietSub Chrome Extension.
+Packaging script for Max Subtitles Chrome Extension.
 Creates a clean, production-ready .zip archive in dist/ for Chrome Web Store upload.
 """
 
@@ -24,7 +24,7 @@ def build_package():
     dist_dir = os.path.join(root_dir, 'dist')
     os.makedirs(dist_dir, exist_ok=True)
 
-    zip_filename = f"max-vietsub-v{version}.zip"
+    zip_filename = f"max-subtitles-v{version}.zip"
     zip_path = os.path.join(dist_dir, zip_filename)
 
     # Clean previous build
@@ -32,7 +32,7 @@ def build_package():
         os.remove(zip_path)
 
     # Required files and directories to include in extension package
-    includes = ['manifest.json', 'icons', 'src', 'LICENSE', 'README.md']
+    includes = ['manifest.json', 'icons', 'src', 'LICENSE', 'PRIVACY.md']
     excluded_extensions = ['.DS_Store', '.git', '.tmp', '.log']
 
     total_files = 0
@@ -54,7 +54,7 @@ def build_package():
 
     file_size_kb = os.path.getsize(zip_path) / 1024
     print("==================================================")
-    print(" Max VietSub Chrome Web Store Packaging Complete ")
+    print(" Max Subtitles Chrome Web Store Packaging Complete ")
     print("==================================================")
     print(f"Archive:    {zip_path}")
     print(f"Version:    {version}")
