@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Max VietSub</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="logo-area">
+        <div class="logo-icon">V</div>
+        <div class="logo-title">
+          <h1>Max VietSub</h1>
+          <span class="badge">HBO MAX</span>
+        </div>
+      </div>
+      <div class="status-indicator" id="status-indicator">
+        <span class="status-dot"></span>
+        <span class="status-text" id="status-text">Đang bật</span>
+      </div>
+    </header>
+
+    <main class="content">
+      <!-- Enable / Disable Toggle -->
+      <div class="control-row">
+        <div class="control-label">
+          <label for="toggle-enabled">Phụ đề tiếng Việt</label>
+          <span class="control-subtext">Tự động dịch và ẩn sub tiếng Anh</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="toggle-enabled" checked>
+          <span class="slider round"></span>
+        </label>
+      </div>
+
+      <!-- Font Size Adjustment -->
+      <div class="control-group">
+        <div class="control-header">
+          <label for="font-size">Cỡ chữ phụ đề</label>
+          <span class="value-display" id="font-size-value">24px</span>
+        </div>
+        <div class="slider-wrapper">
+          <input type="range" id="font-size" min="16" max="44" value="24" step="2">
+        </div>
+        <div class="size-presets">
+          <button type="button" class="preset-btn" data-size="20">Nhỏ</button>
+          <button type="button" class="preset-btn active" data-size="24">Vừa</button>
+          <button type="button" class="preset-btn" data-size="28">Lớn</button>
+          <button type="button" class="preset-btn" data-size="36">Rất lớn</button>
+        </div>
+      </div>
+
+      <!-- Preview Box -->
+      <div class="preview-card">
+        <span class="preview-tag">Xem trước</span>
+        <div class="preview-box">
+          <div class="preview-line" id="preview-text">Xin chào! Đây là phụ đề tiếng Việt.</div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <span>Tối ưu cho HBO Max & Max.com</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
