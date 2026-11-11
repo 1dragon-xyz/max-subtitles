@@ -99,7 +99,7 @@ English
 ## Privacy Policy
 
 **Privacy Policy URL** [REQUIRED]
-https://github.com/1dragon-xyz/hbo-sub/blob/main/PRIVACY.md
+https://github.com/1dragon-xyz/max-subtitles/blob/main/PRIVACY.md
 
 ---
 
