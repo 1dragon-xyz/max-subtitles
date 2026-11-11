@@ -1,0 +1,20 @@
+{
+  "name": "max-vietsub",
+  "version": "1.0.0",
+  "description": "Pure Vietnamese subtitles and live English-to-Vietnamese translation for HBO Max",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "keywords": [
+    "hbo",
+    "hbomax",
+    "max",
+    "subtitles",
+    "vietnamese",
+    "translation",
+    "chrome-extension"
+  ],
+  "author": "Antigravity",
+  "license": "MIT"
+}
