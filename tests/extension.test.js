@@ -15,6 +15,8 @@ test('manifest.json - exists and conforms to Manifest V3 specification', () => {
   assert.equal(manifest.manifest_version, 3, 'manifest_version must be 3');
   assert.equal(typeof manifest.name, 'string');
   assert.ok(manifest.name.startsWith('Max Subtitles'), 'manifest name should be branded Max Subtitles');
+  assert.ok(manifest.description.includes('HBO Max'), 'manifest description should be in English for Store Listing summary');
+  assert.equal(manifest.description.includes('Tự động'), false, 'manifest description should be English to match Primary Language');
   assert.equal(typeof manifest.version, 'string');
 
   // Background service worker

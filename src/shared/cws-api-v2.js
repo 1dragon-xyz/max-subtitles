@@ -141,14 +141,52 @@ export function parseCwsPublishResponse(data) {
     };
   }
 
-  const statusArr = Array.isArray(data.status) ? data.status : [data.status || 'OK'];
+  if (data.error && typeof data.error === 'object') {
+    const errStatus = data.error.status || `HTTP_${data.error.code || 'ERROR'}`;
+    const details = [];
+    if (data.error.message) {
+      details.push(data.error.message);
+    }
+    if (Array.isArray(data.error.details)) {
+      for (const d of data.error.details) {
+        if (Array.isArray(d.violations)) {
+          for (const v of d.violations) {
+            details.push(`[${v.type || 'VIOLATION'}] ${v.description || ''}`);
+          }
+        }
+      }
+    }
+    return {
+      isPendingReview: false,
+      status: errStatus,
+      statusDetail: details
+    };
+  }
+
+  if (typeof data.state === 'string') {
+    const isPendingReview =
+      data.state === 'PENDING_REVIEW' ||
+      data.state === 'PUBLISHED' ||
+      data.state === 'STAGED';
+    return {
+      isPendingReview,
+      status: data.state,
+      statusDetail: []
+    };
+  }
+
+  const statusArr = Array.isArray(data.status)
+    ? data.status
+    : typeof data.status === 'string'
+      ? [data.status]
+      : ['UNKNOWN'];
   const statusDetailArr = Array.isArray(data.statusDetail) ? data.statusDetail : [];
   const isPendingReview =
     statusDetailArr.includes('ITEM_PENDING_REVIEW') || statusArr.includes('OK');
 
   return {
     isPendingReview,
-    status: statusArr[0] || 'OK',
+    status: statusArr[0] || 'UNKNOWN',
     statusDetail: statusDetailArr
   };
 }

@@ -142,6 +142,9 @@ async function main() {
     const publishData = await publishRes.json();
     const pubStatus = parseCwsPublishResponse(publishData);
     console.log('[CWS API v2] Publish Result:', JSON.stringify(pubStatus, null, 2));
+    if (!pubStatus.isPendingReview) {
+      process.exitCode = 1;
+    }
   }
 }
 

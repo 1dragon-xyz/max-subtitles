@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Max Subtitles - Subtitles for HBO Max",
   "version": "1.0.0",
-  "description": "Tự động hiển thị phụ đề tiếng Việt chuẩn xác trên HBO Max và Max.com, thay thế phụ đề tiếng Anh gốc.",
+  "description": "Provides clean, customizable subtitles and live translation on HBO Max and Max.com.",
   "permissions": [
     "storage"
   ],

@@ -84,6 +84,38 @@ test('parseCwsPublishResponse - checks status and statusDetail of publish operat
   const res = parseCwsPublishResponse(published);
   assert.equal(res.isPendingReview, true);
   assert.equal(res.status, 'OK');
+
+  const v2Published = {
+    name: 'publishers/123/items/abc',
+    itemId: 'abc',
+    state: 'PENDING_REVIEW'
+  };
+  const resV2 = parseCwsPublishResponse(v2Published);
+  assert.equal(resV2.isPendingReview, true);
+  assert.equal(resV2.status, 'PENDING_REVIEW');
+
+  const preconditionError = {
+    error: {
+      code: 400,
+      message: 'Your publisher account is missing required information.',
+      status: 'FAILED_PRECONDITION',
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.PreconditionFailure',
+          violations: [
+            {
+              type: 'MISSING_CONTACT_EMAIL',
+              description: 'You must provide a contact email before you can publish any item.'
+            }
+          ]
+        }
+      ]
+    }
+  };
+  const errRes = parseCwsPublishResponse(preconditionError);
+  assert.equal(errRes.isPendingReview, false);
+  assert.equal(errRes.status, 'FAILED_PRECONDITION');
+  assert.equal(errRes.statusDetail.some((d) => d.includes('MISSING_CONTACT_EMAIL')), true);
 });
 
 test('getAccessTokenFromRefreshToken - sends OAuth2 exchange request and returns access_token', async () => {
