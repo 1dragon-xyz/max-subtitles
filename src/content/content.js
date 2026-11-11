@@ -117,6 +117,8 @@
   };
 
   let ensureEnglishSubtitlesActive = async () => false;
+  let captureAndTurnOffSubtitles = async () => false;
+  let disableShowingTextTracks = () => {};
   let findNativeCaptionElements = () => [];
 
   // Opt-in diagnostics: run  localStorage.maxVietSubDebug = '1'  in the page console, then reload.
@@ -145,6 +147,8 @@
 
       const enablerModule = await import(chrome.runtime.getURL('src/shared/auto-enabler.js'));
       if (enablerModule.ensureEnglishSubtitlesActive) ensureEnglishSubtitlesActive = enablerModule.ensureEnglishSubtitlesActive;
+      if (enablerModule.captureAndTurnOffSubtitles) captureAndTurnOffSubtitles = enablerModule.captureAndTurnOffSubtitles;
+      if (enablerModule.disableShowingTextTracks) disableShowingTextTracks = enablerModule.disableShowingTextTracks;
 
       const nativeModule = await import(chrome.runtime.getURL('src/shared/native-caption.js'));
       if (nativeModule.findNativeCaptionElements) findNativeCaptionElements = nativeModule.findNativeCaptionElements;
@@ -173,6 +177,7 @@
     lastCueSeenAt: 0,
     lastEnsureAt: 0,
     uiAttempts: 0,
+    isCapturingSubtitles: false,
     lastCoverageLogAt: 0
   };
 
@@ -249,7 +254,7 @@
         }
       }
       if (state.videoElement) {
-        ensureEnglishSubtitlesActive(state.videoElement, state.playerContainer || document.body, { log: dbg });
+        triggerAutoCaptureAndTurnOff();
       }
     } else {
       document.documentElement.classList.remove('max-vietsub-active');
@@ -284,28 +289,66 @@
     }
   }
 
-  // --- Keep English cues flowing even if the user left HBO subtitles off ---
+  // --- Brief Auto-Capture (1-2s) & Turn-Off so English cues are hooked and HBO caption stays OFF ---
+  function triggerAutoCaptureAndTurnOff() {
+    if (!state.enabled || !state.videoElement || state.isCapturingSubtitles) return;
+    if (state.interceptedCues.length > 0) {
+      disableShowingTextTracks(state.videoElement);
+      return;
+    }
+
+    state.isCapturingSubtitles = true;
+    state.lastEnsureAt = Date.now();
+    state.uiAttempts++;
+
+    captureAndTurnOffSubtitles(state.videoElement, state.playerContainer || document.body, {
+      hasCapturedCues: () => state.interceptedCues.length > 0,
+      minHoldMs: 1200,
+      maxHoldMs: 2500,
+      pollIntervalMs: 150,
+      log: dbg
+    })
+      .then((ok) => {
+        dbg(`captureAndTurnOffSubtitles (attempt ${state.uiAttempts}) ->`, ok, `cues=${state.interceptedCues.length}`);
+      })
+      .finally(() => {
+        state.isCapturingSubtitles = false;
+      });
+  }
+
+  // --- Keep English cues flowing even if the user left HBO subtitles off or refreshed ---
   function maintainEnglishSubtitles() {
-    if (!state.enabled || !state.videoElement) return;
+    if (!state.enabled || !state.videoElement || state.isCapturingSubtitles) return;
+
+    // Once cues are captured, ensure native showing tracks are hidden so English never overlaps
+    if (state.interceptedCues.length > 0) {
+      disableShowingTextTracks(state.videoElement);
+    }
+
     const now = Date.now();
+
+    // If we have not captured any cues yet after video load/refresh, trigger after 1.5s
+    if (state.interceptedCues.length === 0) {
+      const waitSinceVideo = now - state.videoFoundAt;
+      if (waitSinceVideo < 1500) return;
+      const spacing = state.uiAttempts < 3 ? 2500 : 20000;
+      if (now - state.lastEnsureAt < spacing) return;
+      triggerAutoCaptureAndTurnOff();
+      return;
+    }
 
     // Recently saw dialogue => subtitles are on.
     const idleMs = now - Math.max(state.lastCueSeenAt, state.videoFoundAt);
-    const idleNeeded = state.lastCueSeenAt ? 12000 : 3000;
+    const idleNeeded = state.lastCueSeenAt ? 15000 : 4000;
     if (idleMs < idleNeeded) return;
 
-    // A cue is coming up soon => subtitles are on (just a quiet moment).
+    // A cue is coming up soon or we already have cues covering ahead => we are good.
     const t = state.videoElement.currentTime || 0;
-    if (state.interceptedCues.some((c) => c.endTime > t && c.startTime < t + 30)) return;
+    if (state.interceptedCues.some((c) => c.endTime > t)) return;
 
-    const spacing = state.uiAttempts < 3 ? 2000 : 30000;
+    const spacing = state.uiAttempts < 3 ? 3000 : 30000;
     if (now - state.lastEnsureAt < spacing) return;
-    state.lastEnsureAt = now;
-
-    state.uiAttempts++;
-    ensureEnglishSubtitlesActive(state.videoElement, state.playerContainer || document.body, { log: dbg }).then((ok) =>
-      dbg(`ensure English subtitles (attempt ${state.uiAttempts}) ->`, ok)
-    );
+    triggerAutoCaptureAndTurnOff();
   }
 
   if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {

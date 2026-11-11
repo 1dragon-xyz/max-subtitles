@@ -2,8 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   activateEnglishTextTrack,
+  captureAndTurnOffSubtitles,
+  disableShowingTextTracks,
   findAudioSubtitleButton,
   findEnglishOptionElement,
+  findOffOptionElement,
   isEnglishTrack
 } from '../src/shared/auto-enabler.js';
 
@@ -94,4 +97,81 @@ test('findEnglishOptionElement - with a Subtitles heading, picks the English opt
   });
   const dialog = { querySelectorAll: () => order };
   assert.equal(findEnglishOptionElement(dialog), subEn);
+});
+
+test('findOffOptionElement - locates Off / Tắt subtitle option after Subtitles heading', () => {
+  const FOLLOWING = 4;
+  const subHeading = option('Phụ đề');
+  const offVi = option('Tắt', 'subtitle-option-off');
+  const subEn = option('Tiếng Anh');
+  const order = [option('Âm thanh'), option('Tiếng Anh'), subHeading, offVi, subEn];
+  order.forEach((n, i) => {
+    n.compareDocumentPosition = (other) => (order.indexOf(other) > i ? FOLLOWING : 2);
+  });
+  const dialog = { querySelectorAll: () => order };
+  assert.equal(findOffOptionElement(dialog), offVi);
+
+  const offEn = option('Off');
+  assert.equal(findOffOptionElement({ querySelectorAll: () => [offEn, subEn] }), offEn);
+});
+
+test('disableShowingTextTracks - hides any showing textTracks so native captions never overlap', () => {
+  const tracks = [
+    { language: 'en', label: 'English', mode: 'showing' },
+    { language: 'es', label: 'Spanish', mode: 'disabled' }
+  ];
+  disableShowingTextTracks({ textTracks: tracks });
+  assert.equal(tracks[0].mode, 'hidden');
+  assert.equal(tracks[1].mode, 'disabled');
+});
+
+test('captureAndTurnOffSubtitles - turns English ON briefly (1-2s), captures cues, then turns subtitles OFF', async () => {
+  const clicks = [];
+  const btn = {
+    tagName: 'BUTTON',
+    getAttribute: (n) => (n === 'aria-label' ? 'Âm thanh và phụ đề' : null),
+    click: () => clicks.push('menu-btn')
+  };
+  const offOpt = {
+    textContent: 'Tắt',
+    getAttribute: (n) => (n === 'data-testid' ? 'subtitle-option-off' : null),
+    click: () => clicks.push('sub-off')
+  };
+  const enOpt = {
+    textContent: 'Tiếng Anh',
+    getAttribute: (n) => (n === 'data-testid' ? 'subtitle-option-en' : null),
+    click: () => {
+      clicks.push('sub-en');
+      cuesCaptured = true;
+    }
+  };
+  const closeBtn = {
+    tagName: 'BUTTON',
+    getAttribute: (n) => (n === 'aria-label' ? 'Đóng' : null),
+    click: () => clicks.push('close-btn')
+  };
+
+  let cuesCaptured = false;
+  const mockContainer = {
+    querySelector: (sel) => {
+      if (sel.includes('phụ đề')) return btn;
+      if (sel.includes('Close') || sel.includes('Đóng')) return closeBtn;
+      return null;
+    },
+    querySelectorAll: () => [offOpt, enOpt]
+  };
+  const mockVideo = {
+    textTracks: [{ language: 'en', label: 'English', mode: 'showing' }]
+  };
+
+  const result = await captureAndTurnOffSubtitles(mockVideo, mockContainer, {
+    hasCapturedCues: () => cuesCaptured,
+    minHoldMs: 50,
+    maxHoldMs: 300,
+    pollIntervalMs: 25
+  });
+
+  assert.equal(result, true);
+  assert.deepEqual(clicks, ['menu-btn', 'sub-en', 'sub-off', 'close-btn']);
+  assert.equal(mockVideo.textTracks[0].mode, 'hidden');
 });

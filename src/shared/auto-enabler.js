@@ -5,6 +5,7 @@
  */
 
 const ENGLISH_OPTION_RE = /^(english|tiếng anh)(\s*[[(-]?\s*cc\s*[\])]?)?$/i;
+const OFF_OPTION_RE = /^(off|tắt|none|không|disabled?)$/i;
 const SUBTITLE_HEADING_RE = /^(phụ đề|subtitles?|captions?|closed captions?)$/i;
 const AUDIO_SUB_LABEL_RE = /(âm thanh|audio).*(phụ đề|subtitle|caption)|phụ đề|subtitles?|captions?/i;
 const FOLLOWING = 4; // Node.DOCUMENT_POSITION_FOLLOWING
@@ -110,7 +111,153 @@ export function findEnglishOptionElement(dialog) {
   return english.length === 1 ? english[0] : null;
 }
 
+/**
+ * Finds the "Off" / "Tắt" SUBTITLE option in the opened menu (after the Subtitles heading).
+ * @param {HTMLElement|Document|object} dialog
+ * @returns {HTMLElement|null}
+ */
+export function findOffOptionElement(dialog) {
+  if (!dialog || typeof dialog.querySelectorAll !== 'function') return null;
+
+  const nodes = Array.from(
+    dialog.querySelectorAll('button, [role="radio"], [role="menuitem"], [role="option"], div, label, span')
+  );
+  const textOf = (el) => (el.textContent || '').trim();
+  const testIdOf = (el) => ((el.getAttribute && el.getAttribute('data-testid')) || '').toLowerCase();
+
+  const offNodes = nodes.filter(
+    (el) =>
+      OFF_OPTION_RE.test(textOf(el)) ||
+      testIdOf(el).includes('subtitle-option-off') ||
+      testIdOf(el).includes('caption-option-off')
+  );
+  if (offNodes.length === 0) return null;
+
+  const heading = nodes.find((el) => SUBTITLE_HEADING_RE.test(textOf(el)));
+  if (heading && typeof heading.compareDocumentPosition === 'function') {
+    const afterHeading = offNodes.filter((el) => heading.compareDocumentPosition(el) & FOLLOWING);
+    return afterHeading[0] || null;
+  }
+
+  return offNodes.length === 1 ? offNodes[0] : offNodes[offNodes.length - 1];
+}
+
+/**
+ * Ensures no native HTML5 textTracks are in 'showing' mode so native browser captions never overlap.
+ * @param {HTMLVideoElement|object} video
+ */
+export function disableShowingTextTracks(video) {
+  if (!video || !video.textTracks) return;
+  for (let i = 0; i < video.textTracks.length; i++) {
+    const track = video.textTracks[i];
+    if (track && track.mode === 'showing') {
+      try {
+        track.mode = 'hidden';
+      } catch (_) {}
+    }
+  }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Briefly turns ON English subtitles (1–2s, max 3s) so HBO Max downloads the full subtitle track
+ * and our page-hook captures all cues, then immediately turns HBO's subtitles back OFF ("Tắt" / "Off")
+ * so only the Vietnamese overlay is displayed with zero dual-subtitle overlap.
+ *
+ * @param {HTMLVideoElement|object} video
+ * @param {HTMLElement|Document|object} [container]
+ * @param {{
+ *   hasCapturedCues?: () => boolean,
+ *   minHoldMs?: number,
+ *   maxHoldMs?: number,
+ *   pollIntervalMs?: number,
+ *   log?: Function
+ * }} [opts]
+ * @returns {Promise<boolean>}
+ */
+export async function captureAndTurnOffSubtitles(
+  video,
+  container = typeof document !== 'undefined' ? document.body : null,
+  {
+    hasCapturedCues = () => false,
+    minHoldMs = 1000,
+    maxHoldMs = 2500,
+    pollIntervalMs = 100,
+    log = () => {}
+  } = {}
+) {
+  if (!container) return false;
+
+  const btn = findAudioSubtitleButton(container);
+  if (!btn) {
+    log('auto-capture: audio/subtitle button not found');
+    return activateEnglishTextTrack(video);
+  }
+
+  const docEl = typeof document !== 'undefined' ? document.documentElement : null;
+  if (docEl) docEl.classList.add('max-vietsub-silent-dialog');
+
+  let captured = false;
+  try {
+    btn.click();
+
+    let enOption = null;
+    for (let i = 0; i < 8 && !enOption; i++) {
+      await sleep(Math.min(100, pollIntervalMs));
+      enOption = findEnglishOptionElement(container);
+    }
+
+    if (enOption) {
+      enOption.click();
+      log('auto-capture: enabled English subtitles briefly to hook full track');
+
+      // Wait minimum hold time (e.g. 1s), then poll until cues are captured or maxHoldMs (2.5s) is reached
+      const startedAt = Date.now();
+      await sleep(minHoldMs);
+      while (!hasCapturedCues() && Date.now() - startedAt < maxHoldMs) {
+        await sleep(pollIntervalMs);
+      }
+      captured = Boolean(hasCapturedCues());
+
+      // Now turn HBO's native subtitles back OFF ("Tắt" / "Off") so English never renders on screen
+      let offOption = findOffOptionElement(container);
+      if (!offOption) {
+        // Re-open menu if selecting English auto-closed it
+        btn.click();
+        for (let i = 0; i < 6 && !offOption; i++) {
+          await sleep(Math.min(100, pollIntervalMs));
+          offOption = findOffOptionElement(container);
+        }
+      }
+
+      if (offOption) {
+        offOption.click();
+        log('auto-capture: switched HBO native subtitles back to Off/Tắt');
+      }
+    } else {
+      log('auto-capture: English subtitle option not found');
+    }
+
+    disableShowingTextTracks(video);
+
+    await sleep(Math.min(80, pollIntervalMs));
+    const close =
+      typeof container.querySelector === 'function'
+        ? container.querySelector(
+            'button[aria-label*="Close" i], button[aria-label*="Đóng" i], [data-testid*="close" i]'
+          )
+        : null;
+    if (close) close.click();
+    else if (!enOption) btn.click();
+  } catch (err) {
+    log('auto-capture: error', String(err));
+  } finally {
+    if (docEl) setTimeout(() => docEl.classList.remove('max-vietsub-silent-dialog'), 250);
+  }
+
+  return captured || activateEnglishTextTrack(video);
+}
 
 /**
  * Best-effort: make sure English cues are flowing.
